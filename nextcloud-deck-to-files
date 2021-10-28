@@ -1,0 +1,106 @@
+#!/usr/bin/python
+
+import requests
+from requests.auth import HTTPBasicAuth
+import sys
+import os
+
+def send_request(endpoint, config, api_url="index.php/apps/deck/api/v1.0"):
+    url = f"{config['url']}/{api_url}/{endpoint}"
+    print(url)
+    r = requests.get(
+        url,
+        headers={"OCS-APIRequest": "true"},
+        verify=False,
+        auth=HTTPBasicAuth(config["user"], config["password"])
+    )
+    return r.json()
+
+def parse_args():
+
+    def compare_arg(arg, short, long):
+        if arg == f"-{short}" or arg == f"--{long}":
+            return True
+        return False
+
+    result = {
+        "help": False,
+        "url": "",
+        "user": "",
+        "password": "",
+        "dir": ""
+    }
+
+    i = 1
+    while i < len(sys.argv):
+        current_arg = sys.argv[i]
+
+        if compare_arg(current_arg, "h", "help"):
+            result["help"] = True
+            break
+        elif compare_arg(current_arg, "e", "url"):
+            i += 1
+            result["url"] = sys.argv[i]
+        elif compare_arg(current_arg, "u", "user"):
+            i += 1
+            result["user"] = sys.argv[i]
+        elif compare_arg(current_arg, "p", "password"):
+            i += 1
+            result["password"] = sys.argv[i]
+        elif compare_arg(current_arg, "d", "dir"):
+            i += 1
+            result["dir"] = sys.argv[i]
+        else:
+            print(f"Unknown argument: {current_arg}.\nType --help for possible arguments.")
+            exit(1)
+        i += 1
+
+    return result
+
+def process_card(card, path):
+    print(path)
+    print(f"=======\n\n{card}\n\n")
+
+    f = open(os.path.join(path, f"{card['title'].replace('/', '_')}.md"), "w")
+    f.write(f"#{card['title']}\n{card['description']}")
+
+def process_stack(board_id, stack, path, config):
+    path = os.path.join(path, stack["title"])
+    try:
+        os.makedirs(path)
+    except:
+        print(f"Error creating dir: '{path}'")
+
+
+    print(stack)
+    print(path)
+
+    for card in send_request(f"boards/{board_id}/stacks/{stack['id']}", config).get("cards", []):
+        process_card(card, path)
+
+def process_board(board_id, title, path, config):
+    path = os.path.join(path, title)
+    try:
+        os.makedirs(path)
+    except:
+        print(f"Error creating dir: '{path}'")
+
+    for stack in send_request(f"boards/{board_id}/stacks", config):
+        process_stack(board_id, stack, path, config)
+
+def main():
+    config = parse_args()
+
+    if config["help"]:
+        print("Usage: nextcloud-deck-to-files -e <URL_TO_NEXTCLOUD> -u <USER> -p <PASSWORD> -d <EXPORT_DIR>")
+        exit(0)
+
+    if config["url"] == "" or config["user"] == "" or config["password"] == "" or config["dir"] == "":
+        print("Some arguments is not specified.\nType --help for usage information.")
+        exit(1)
+
+    for board in send_request("boards", config):
+        print(board)
+        process_board(board["id"], board["title"], config["dir"], config)
+
+main()
